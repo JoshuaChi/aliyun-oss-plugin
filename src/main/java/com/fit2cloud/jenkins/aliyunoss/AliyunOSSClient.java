@@ -1,17 +1,20 @@
 package com.fit2cloud.jenkins.aliyunoss;
 
+import com.aliyun.oss.OSSClient;
+import com.aliyun.oss.model.ObjectMetadata;
 import hudson.FilePath;
-import hudson.model.BuildListener;
 import hudson.model.AbstractBuild;
+import hudson.model.BuildListener;
+import org.apache.commons.lang.time.DurationFormatUtils;
+import org.apache.tika.detect.Detector;
+import org.apache.tika.metadata.Metadata;
+import org.apache.tika.mime.MediaType;
+import org.apache.tika.parser.AutoDetectParser;
 
+import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.StringTokenizer;
-
-import org.apache.commons.lang.time.DurationFormatUtils;
-
-import com.aliyun.oss.OSSClient;
-import com.aliyun.oss.model.ObjectMetadata;
 
 public class AliyunOSSClient {
 	private static final String fpSeparator = ";";
@@ -111,6 +114,14 @@ public class AliyunOSSClient {
 						InputStream inputStream = src.read();
 						try {
 							ObjectMetadata meta = new ObjectMetadata();
+
+							AutoDetectParser parser = new AutoDetectParser();
+							Detector detector = parser.getDetector();
+							Metadata md = new Metadata();
+							md.add(Metadata.RESOURCE_NAME_KEY, src.getName());
+							MediaType mediaType = detector.detect(new BufferedInputStream(inputStream), md);
+							meta.setContentType(mediaType.toString());
+
 							meta.setContentLength(src.length());
 							client.putObject(bucketName, key, inputStream, meta);
 						} finally {
