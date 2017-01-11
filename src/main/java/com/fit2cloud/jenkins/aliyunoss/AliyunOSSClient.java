@@ -5,6 +5,7 @@ import com.aliyun.oss.model.ObjectMetadata;
 import hudson.FilePath;
 import hudson.model.AbstractBuild;
 import hudson.model.BuildListener;
+import org.apache.commons.io.output.ByteArrayOutputStream;
 import org.apache.commons.lang.time.DurationFormatUtils;
 import org.apache.tika.detect.Detector;
 import org.apache.tika.metadata.Metadata;
@@ -12,6 +13,7 @@ import org.apache.tika.mime.MediaType;
 import org.apache.tika.parser.AutoDetectParser;
 
 import java.io.BufferedInputStream;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.StringTokenizer;
@@ -113,23 +115,21 @@ public class AliyunOSSClient {
 						long startTime = System.currentTimeMillis();
 						InputStream inputStream = src.read();
 						try {
-							ObjectMetadata meta = new ObjectMetadata();
+                            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                            byte[] buffer = new byte[1024];
+                            int len;
+                            while ((len = inputStream.read(buffer)) > -1 ) {
+                                baos.write(buffer, 0, len);
+                            }
+                            baos.flush();
 
-                            try {
-                                AutoDetectParser parser = new AutoDetectParser();
-                                Detector detector = parser.getDetector();
-                                Metadata md = new Metadata();
-                                md.add(Metadata.RESOURCE_NAME_KEY, src.getName());
-                                MediaType mediaType = detector.detect(new BufferedInputStream(inputStream), md);
-                                listener.getLogger().println(" - filename ["+ src.getName() + "] with content type [" + mediaType.toString() + "].");
-                                meta.setContentType(mediaType.toString());
-                            }
-                            catch (Exception e) {
-                                e.printStackTrace();
-                            }
+                            ObjectMetadata meta = new ObjectMetadata();
+
+                            MediaType mediaType = getMediaType(listener, src, baos);
+                            meta.setContentType(mediaType.toString());
 
 							meta.setContentLength(src.length());
-							client.putObject(bucketName, key, inputStream, meta);
+							client.putObject(bucketName, key, new ByteArrayInputStream(baos.toByteArray()), meta);
 						} finally {
 							try {
 								inputStream.close();
@@ -148,8 +148,18 @@ public class AliyunOSSClient {
 		}
 		return filesUploaded;
 	}
-	
-	public static String getTime(long timeInMills) {
+
+    private static MediaType getMediaType(BuildListener listener, FilePath src, ByteArrayOutputStream baos) throws IOException {
+        AutoDetectParser parser = new AutoDetectParser();
+        Detector detector = parser.getDetector();
+        Metadata md = new Metadata();
+        md.add(Metadata.RESOURCE_NAME_KEY, src.getName());
+        MediaType mediaType = detector.detect(new BufferedInputStream(new ByteArrayInputStream(baos.toByteArray())), md);
+        listener.getLogger().println(" - filename ["+ src.getName() + "] with content type [" + mediaType.toString() + "].");
+        return mediaType;
+    }
+
+    public static String getTime(long timeInMills) {
 		return DurationFormatUtils.formatDuration(timeInMills, "HH:mm:ss.S") + " (HH:mm:ss.S)";
 	}
 
