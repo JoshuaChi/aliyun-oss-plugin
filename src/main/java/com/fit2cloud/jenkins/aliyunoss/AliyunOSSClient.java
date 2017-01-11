@@ -119,8 +119,10 @@ public class AliyunOSSClient {
 							Detector detector = parser.getDetector();
 							Metadata md = new Metadata();
 							md.add(Metadata.RESOURCE_NAME_KEY, src.getName());
-							MediaType mediaType = detector.detect(new BufferedInputStream(inputStream), md);
-							meta.setContentType(mediaType.toString());
+                            MediaType mediaType = detector.detect(new BufferedInputStream(inputStream), md);
+                            listener.getLogger().println(" - filename ["+ src.getName() + "] with content type [" + mediaType.toString() + "].");
+
+                            meta.setContentType(mediaType.toString());
 
 							meta.setContentLength(src.length());
 							client.putObject(bucketName, key, inputStream, meta);
