@@ -16,6 +16,8 @@ import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.StringTokenizer;
 
 public class AliyunOSSClient {
@@ -44,8 +46,14 @@ public class AliyunOSSClient {
 		return true;
 	}
 	
-	public static int upload(AbstractBuild<?, ?> build, BuildListener listener,
-			final String aliyunAccessKey, final String aliyunSecretKey, final String aliyunEndPointSuffix, String bucketName,String expFP,String expVP) throws AliyunOSSException {
+	public static int upload(AbstractBuild<?, ?> build,
+							 BuildListener listener,
+							 final String aliyunAccessKey,
+							 final String aliyunSecretKey,
+							 final String aliyunEndPointSuffix,
+							 String bucketName,
+							 String expFP,
+							 String expVP) throws AliyunOSSException {
 		OSSClient client = new OSSClient(aliyunAccessKey, aliyunSecretKey);
 		String location = client.getBucketLocation(bucketName);
 		String endpoint = "http://" + location + aliyunEndPointSuffix;
@@ -58,7 +66,7 @@ public class AliyunOSSClient {
 				return filesUploaded;
 			}
 			StringTokenizer strTokens = new StringTokenizer(expFP, fpSeparator);
-			FilePath[] paths = null;
+			List<FilePath> paths = null;
 
 			listener.getLogger().println("开始上传到阿里云OSS...");
 			listener.getLogger().println("上传endpoint是：" + endpoint);
@@ -89,65 +97,100 @@ public class AliyunOSSClient {
 				FilePath fp = new FilePath(workspacePath, fileName);
 
 				if (fp.exists() && !fp.isDirectory()) {
-					paths = new FilePath[1];
-					paths[0] = fp;
+					paths = new ArrayList<FilePath>();
+					paths.add(fp);
 				} else {
-					paths = workspacePath.list(fileName);
+                    listener.getLogger().println("fileName: " + fileName);
+					paths = fp.list();
 				}
 
-				if (paths.length != 0) {
-					for (FilePath src : paths) {
-						String key = "";
-						if (Utils.isNullOrEmpty(expVP)
-								&& Utils.isNullOrEmpty(embeddedVP)) {
-							key = src.getName();
-						} else {
-							String prefix = expVP;
-							if (!Utils.isNullOrEmpty(embeddedVP)) {
-								if (Utils.isNullOrEmpty(expVP)) {
-									prefix = embeddedVP;
-								} else {
-									prefix = expVP + embeddedVP;
-								}
-							}
-							key = prefix + src.getName();
-						}
-						long startTime = System.currentTimeMillis();
-						InputStream inputStream = src.read();
-						try {
-                            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                            byte[] buffer = new byte[1024];
-                            int len;
-                            while ((len = inputStream.read(buffer)) > -1 ) {
-                                baos.write(buffer, 0, len);
-                            }
-                            baos.flush();
-
-                            ObjectMetadata meta = new ObjectMetadata();
-
-                            MediaType mediaType = getMediaType(listener, src, baos);
-                            meta.setContentType(mediaType.toString());
-
-							meta.setContentLength(src.length());
-							client.putObject(bucketName, key, new ByteArrayInputStream(baos.toByteArray()), meta);
-						} finally {
-							try {
-								inputStream.close();
-							} catch (IOException e) {
-							}
-						}
-						long endTime = System.currentTimeMillis();
-						listener.getLogger().println("Uploaded object ["+ key + "] in " + getTime(endTime - startTime));
-						filesUploaded++;
-					}
-				}
-			}
+                filesUploaded = deepLoop(listener, bucketName, expVP, client, filesUploaded, paths, embeddedVP);
+            }
 		} catch (Exception e) {
 			e.printStackTrace();
 			throw new AliyunOSSException(e.getMessage(), e.getCause());
 		}
 		return filesUploaded;
 	}
+
+    private static int deepLoop(
+            BuildListener listener, String bucketName,
+            String expVP, OSSClient client, int filesUploaded,
+            List<FilePath> paths, String embeddedVP) throws IOException, InterruptedException {
+
+        listener.getLogger().println("Paths length：" + paths.size() + ". embeddedVP:" + embeddedVP +". expVP: " + expVP);
+        if (paths.size() > 0) {
+            listener.getLogger().println("Paths is not empty.");
+            for (FilePath src : paths) {
+                listener.getLogger().println("file path src name: " + src.getName());
+                if (src.isDirectory()) {
+                    listener.getLogger().println("Path is directory：" + src);
+                    filesUploaded = deepLoop(listener, bucketName, expVP+src.getName()+"/", client, filesUploaded, src.list(), embeddedVP);
+                }
+                else {
+                    listener.getLogger().println("Path is not directory：" + src);
+                    getFileUploaded(listener, bucketName, expVP, client, embeddedVP, src);
+                }
+                filesUploaded++;
+            }
+        }
+        return filesUploaded;
+    }
+
+    private static void getFileUploaded(
+            BuildListener listener,
+            String bucketName,
+            String expVP,
+            OSSClient client,
+            String embeddedVP,
+            FilePath src) throws IOException, InterruptedException {
+
+        String key = "";
+        if (Utils.isNullOrEmpty(expVP)
+                && Utils.isNullOrEmpty(embeddedVP)) {
+            key = src.getName();
+        } else {
+            String prefix = expVP;
+            if (!Utils.isNullOrEmpty(embeddedVP)) {
+                if (Utils.isNullOrEmpty(expVP)) {
+                    prefix = embeddedVP;
+                } else {
+                    prefix = expVP + embeddedVP;
+                }
+            }
+            key = prefix + src.getName();
+        }
+
+        listener.getLogger().println("key：" + key);
+        long startTime = System.currentTimeMillis();
+
+        InputStream inputStream = src.read();
+
+        try {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            byte[] buffer = new byte[1024];
+            int len;
+            while ((len = inputStream.read(buffer)) > -1 ) {
+                baos.write(buffer, 0, len);
+            }
+            baos.flush();
+            ObjectMetadata meta = new ObjectMetadata();
+
+            MediaType mediaType = getMediaType(listener, src, baos);
+
+            meta.setContentType(mediaType.toString());
+
+            meta.setContentLength(src.length());
+            client.putObject(bucketName, key, new ByteArrayInputStream(baos.toByteArray()), meta);
+        } finally {
+            try {
+                inputStream.close();
+            } catch (IOException e) {
+            }
+        }
+        long endTime = System.currentTimeMillis();
+        listener.getLogger().println("Uploaded object ["+ key + "] in " + getTime(endTime - startTime));
+    }
 
     private static MediaType getMediaType(BuildListener listener, FilePath src, ByteArrayOutputStream baos) throws IOException {
         AutoDetectParser parser = new AutoDetectParser();

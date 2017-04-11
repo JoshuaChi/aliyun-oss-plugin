@@ -51,3 +51,8 @@ Jenkins是当前最常用的CI服务器，FIT2CLOUD Aliyun-OSS-Plugin for Jenkin
 5. mvn package 打包生成hpi文件
 
 如果有问题，请联系zhimin@fit2cloud.com
+
+五、历史版本
+-------------------------
+
+1. 从版本10.0.1开始, 我们加入了通过指定path, 程序会自动上传整个文件夹. 比如:指定 Artifacts "dist/static/" 我们会把这个文件中的所有文件结构照搬至OSS.
